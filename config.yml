@@ -1,0 +1,134 @@
+## directories and stuff ###
+path_to_pretrain_dir: "pretrained-models"
+path_to_temp_dir: "temp-models"
+path_to_data_dir: "data"
+
+job_types:
+  - "grep"
+  - "sort"
+  - "sgd"
+  - "kmeans"
+  - "pagerank"
+
+### default model setup ### 
+model_setup:
+  follow_batch: ['x_emb', 'x_opt']
+  device: "cpu"
+  loss_args:
+    device: "cpu"
+  optimizer_args:
+    lr: 0.001
+    weight_decay: 0.001
+  model_args:
+    dropout: 0.1
+    hidden_dim: 8
+    encoding_dim: 40
+  epochs: 
+    - 2500 # for pre-training
+    - 2500 # for fine-tuning
+  batch_size: 64
+
+
+### pipeline setup ###
+pipeline:
+  transforms:
+    - in_column: ["instance_count", "instance_count_div", "instance_count_log"]
+      out_column: ["instance_count", "instance_count_div", "instance_count_log"]
+      transformer: "MinMaxScaler"
+    - in_column: ["data_size_MB", "memory", "slots"]
+      out_column: ["data_size_MB", "memory", "slots"]
+      transformer: "BinaryTransformer"
+      transformer_args: 
+        n: 40
+    - in_column: ["machine_type", "job_type", "job_args", "data_characteristics", "environment"]
+      out_column: ["machine_type", "job_type", "job_args", "data_characteristics", "environment"]
+      transformer: "CountVectorizer"
+      transformer_args: 
+        lowercase: True
+        analyzer: "char"
+        vocabulary: ["a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p","q","r","s","t","u","v","w","x","y","z","0","1","2","3","4","5","6","7","8","9",".","_","+","-"]
+
+  
+  emb_columns: ["machine_type", "job_args", "data_size_MB", "data_characteristics", "environment"]
+  opt_columns: ["job_type", "memory", "slots"]
+  extra_columns:
+    - "instance_count"
+    - "instance_count_div"
+    - "instance_count_log"
+    - "type"
+    - "machine_type"
+    - "job_args"
+    - "data_size_MB"
+    - "data_characteristics"
+    - "environment"
+    - "job_type"
+    - "memory"
+    - "slots"
+  target_column: 
+    - "gross_runtime"
+
+
+### early stopping configuration during fine-tuning ###
+early_stopping:
+  patience: 1000
+
+score_function:
+  relation: "lt"
+  key: "ft_loss"
+  threshold: -5.
+  
+reuse_for_fine_tuning:
+  model_args: True
+  optimizer_args: False
+  loss_args: True
+
+
+### used for creating groups during train/val split in hp optimization ###
+grouping_keys: ["machine_type", "job_args", "data_size_MB", "data_characteristics", "environment", "instance_count"]
+
+### below is for hyperparameter optimization ###
+scheduler: 
+  grace_period: 1000
+  reduction_factor: 2
+
+reporter:
+  parameter_columns: ["dropout", "lr", "weight_decay"]
+  metric_columns: ["validation_loss", "mae", "mse"]
+
+concurrency_limiter: 
+  max_concurrent: 4
+
+tune_best_trial:
+  scope: "all"
+  filter_nan_and_inf: True
+
+stopping_criterion:
+  relation: "lt"
+  key: "validation_loss"
+  threshold: 1
+
+tune_run:
+  mode: "min" # IMPORTANT
+  metric: "validation_loss" # IMPORTANT
+  checkpoint_score_attr: "min-validation_loss" # IMPORTANT
+  keep_checkpoints_num: 10 # at least two, because functional Training API will ALWAYS save checkpoint for last iteration
+  local_dir: "ray_results"
+  resources_per_trial:
+    cpu: 6
+    gpu: 0.0
+  verbose: 1
+  num_samples: 12
+  config: 
+    dropout: 
+      - 0.1
+      - 0.2
+      - 0.5
+    lr:
+      - 0.1
+      - 0.01
+      - 0.001
+    weight_decay:
+      - 0.01
+      - 0.001
+      - 0.0001
+      - 0.00001

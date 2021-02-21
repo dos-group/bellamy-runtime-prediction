@@ -1,0 +1,26 @@
+name: bellamyV1
+
+dependencies:
+- scipy=1.5.2
+- numpy=1.19.1
+- scikit-learn=0.23.2
+- pandas=1.1.1
+- pip
+- pytorch::ignite=0.4.2 # high-level library to help with training and evaluating neural networks
+- pytorch::pytorch=1.7.0
+- cudatoolkit=10.1
+- python>=3.8.0
+- dill
+- pip:
+  - ray[tune]==1.1.0 # hyperparameter tuning
+  - optuna==2.3.0 # hyperparameter tuning
+  - PyYAML==5.3.1
+  - torch-scatter
+  - --find-links https://pytorch-geometric.com/whl/torch-1.7.0+cu101.html
+  - torch-sparse
+  - --find-links https://pytorch-geometric.com/whl/torch-1.7.0+cu101.html
+  - torch-cluster 
+  - --find-links https://pytorch-geometric.com/whl/torch-1.7.0+cu101.html
+  - torch-spline-conv 
+  - --find-links https://pytorch-geometric.com/whl/torch-1.7.0+cu101.html
+  - torch-geometric==1.6.3

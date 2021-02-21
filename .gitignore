@@ -1,3 +1,8 @@
+ray_results
+temp-models
+pretrained-models
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
