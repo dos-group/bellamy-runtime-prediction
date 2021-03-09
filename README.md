@@ -48,4 +48,4 @@ After obtaining a pretrained model, we can proceed to use it for predictions. Fo
 
 will use an exemplary request containing a min scale-out, a max scale-out and the necessary information for the essential context properties. The pretrained model will be loaded, ideally fine-tuned on data found for this specific configuration, and eventually used for retrieving runtimes. Finally, we report the scale-out with the smallest runtime. This scale-out can then be used for allocating resources accordingly.
 
-Of course, the code can be extended to incorporate our criterions.
+Of course, the code can be extended to incorporate other criterions.
