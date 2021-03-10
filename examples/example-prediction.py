@@ -6,7 +6,9 @@ import argparse
 import yaml
 from yaml import safe_load
 
-sys.path.append(os.path.join(os.path.abspath("")))
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+os.environ["PYTHONPATH"] = parent_dir + ":" + os.environ.get("PYTHONPATH", "")
+sys.path.append(parent_dir)
 
 from src.servlets import BellamyModel
 from src.utils import default_config, init_logging
