@@ -20,7 +20,6 @@ from ignite.contrib.handlers.param_scheduler import ConcatScheduler, LinearCycli
 
 from src.training_routines import create_supervised_trainer
 from src.losses import *
-from src.splitting import *
 from src.utils import default_config, update_flat_dicts
 
 import time

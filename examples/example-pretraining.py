@@ -4,7 +4,7 @@ import os
 import sys
 import argparse
 
-sys.path.append(os.path.join(os.path.abspath(''), "..", ".."))
+sys.path.append(os.path.join(os.path.abspath("")))
 
 from src.pretraining import Pretrainer
 from src.utils import default_config, init_logging

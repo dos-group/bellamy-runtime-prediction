@@ -6,7 +6,7 @@ import argparse
 import yaml
 from yaml import safe_load
 
-sys.path.append(os.path.join(os.path.abspath(''), "..", ".."))
+sys.path.append(os.path.join(os.path.abspath("")))
 
 from src.servlets import BellamyModel
 from src.utils import default_config, init_logging
