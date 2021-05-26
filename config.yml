@@ -14,13 +14,15 @@ job_types:
 model_setup:
   follow_batch: ['x_emb', 'x_opt']
   device: "cpu"
-  loss_args:
+  training_loss_args:
+    device: "cpu"
+  fine_tuning_loss_args:
     device: "cpu"
   optimizer_args:
     lr: 0.001
     weight_decay: 0.001
   model_args:
-    dropout: 0.1
+    dropout: 0.0
     hidden_dim: 8
     encoding_dim: 40
   epochs: 
@@ -39,14 +41,18 @@ pipeline:
       out_column: ["data_size_MB", "memory", "slots"]
       transformer: "BinaryTransformer"
       transformer_args: 
-        n: 40
+        n: 39
     - in_column: ["machine_type", "job_type", "job_args", "data_characteristics", "environment"]
       out_column: ["machine_type", "job_type", "job_args", "data_characteristics", "environment"]
-      transformer: "CountVectorizer"
-      transformer_args: 
-        lowercase: True
-        analyzer: "char"
-        vocabulary: ["a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p","q","r","s","t","u","v","w","x","y","z","0","1","2","3","4","5","6","7","8","9",".","_","+","-"]
+      transformer: "HashingVectorizer"
+      transformer_args:
+        n_features: 39 # one less then encoding_dim
+        lowercase: True # default
+        analyzer: "char_wb"
+        ngram_range: [1, 3]
+        norm: "l2" # default
+        alternate_sign: True # default
+
 
   
   emb_columns: ["machine_type", "job_args", "data_size_MB", "data_characteristics", "environment"]
@@ -75,13 +81,11 @@ early_stopping:
 score_function:
   relation: "lt"
   key: "ft_loss"
-  threshold: -5.
+  threshold: -5.0
   
 reuse_for_fine_tuning:
   model_args: True
   optimizer_args: False
-  loss_args: True
-
 
 ### used for creating groups during train/val split in hp optimization ###
 grouping_keys: ["machine_type", "job_args", "data_size_MB", "data_characteristics", "environment", "instance_count"]
@@ -105,7 +109,7 @@ tune_best_trial:
 stopping_criterion:
   relation: "lt"
   key: "validation_loss"
-  threshold: 1
+  threshold: 0
 
 tune_run:
   mode: "min" # IMPORTANT
@@ -120,9 +124,9 @@ tune_run:
   num_samples: 12
   config: 
     dropout: 
+      - 0.05
       - 0.1
       - 0.2
-      - 0.5
     lr:
       - 0.1
       - 0.01
@@ -131,4 +135,3 @@ tune_run:
       - 0.01
       - 0.001
       - 0.0001
-      - 0.00001

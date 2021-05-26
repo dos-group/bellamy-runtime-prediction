@@ -5,9 +5,9 @@ Prototypical implementation of "Bellamy" for runtime prediction / resource alloc
 
 #### Important Packages
 * Python `3.8.0+`
-* [PyTorch](https://pytorch.org/) `1.7.0`
+* [PyTorch](https://pytorch.org/) `1.8.0`
 * [PyTorch Ignite](https://pytorch.org/ignite/) `0.4.2`
-* [PyTorch Geometric](https://pytorch-geometric.readthedocs.io/en/1.6.3/) `1.6.3`
+* [PyTorch Geometric](https://pytorch-geometric.readthedocs.io/en/1.7.0/) `1.7.0`
 * [Ray Tune](https://docs.ray.io/en/releases-1.1.0/tune/index.html) `1.1.0`
 * [Optuna](https://optuna.org/) `2.3.0`
 
@@ -23,14 +23,9 @@ For activation of the environment, execute:
 
     [source / conda] activate bellamyV1
 
-#### Resolve Conflict
-Due to a conflicting dependency, we additionally need to execute:
-
-    pip uninstall -y dataclasses
-
 
 ## Hyperparameter Optimization
-During Model-Pretraining, we use [Ray Tune](https://docs.ray.io/en/releases-1.1.0/tune/index.html) and [Optuna](https://optuna.org/) to carry out a small search for optimized hyperparameters. As of now, we draw 12 trials using [Optuna](https://optuna.org/) from a manageable search space. All details are listed in the `config.yml` and are in most cases directly passed to the respective functions / methods / classes in [Ray Tune](https://docs.ray.io/en/releases-1.1.0/tune/index.html).
+During Model-Pretraining, we use [Ray Tune](https://docs.ray.io/en/releases-1.1.0/tune/index.html) and [Optuna](https://optuna.org/) to carry out a search for optimized hyperparameters. As of now, we draw 12 trials using [Optuna](https://optuna.org/) from a manageable search space. All details are listed in the `config.yml` and are in most cases directly passed to the respective functions / methods / classes in [Ray Tune](https://docs.ray.io/en/releases-1.1.0/tune/index.html). For instance, it can be inferred from the `config.yml` file that we used the [ASHAScheduler](https://docs.ray.io/en/releases-1.1.0/tune/api_docs/schedulers.html?highlight=asha#asha-tune-schedulers-ashascheduler) implemented in Ray Tune to early terminate bad trials, pause trials, clone trials, and alter hyperparameters of a running trial. Also, we used Optuna's default sampler, namely [TPESampler](https://optuna.readthedocs.io/en/v2.3.0/reference/generated/optuna.samplers.TPESampler.html), to provide trial suggestions.
 
 
 ## Example: Pretraining of Models

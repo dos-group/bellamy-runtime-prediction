@@ -2,6 +2,8 @@ ray_results
 temp-models
 pretrained-models
 
+**/*.idea
+**/*.tar.gz
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
