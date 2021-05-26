@@ -11,7 +11,7 @@ from ray import tune
 from ray.tune.suggest.optuna import OptunaSearch
 from ray.tune.suggest import ConcurrencyLimiter
 from ray.tune.schedulers import ASHAScheduler
-from ray.tune import CLIReporter
+from ray.tune import CLIReporter, ExperimentAnalysis
 from ignite.engine import Events
 from ignite.metrics import Loss, MeanAbsoluteError, MeanSquaredError
 from torch_geometric.data import DataLoader
@@ -62,20 +62,15 @@ class Pretrainer(object):
         self.__dict__.update(**model.__dict__)
         
         hptuner_instance = HPTuner(**self.__dict__)
-        model_state_dict, optimizer_state_dict, trainer_state_dict, best_trial_config, best_trial_val_loss, time_taken = HPTuner.perform_tuning(hptuner_instance, 
-                                                                                                                                                self.epochs[0], 
-                                                                                                                                                data_list)
-           
+        
+        result_dict: dict = HPTuner.perform_tuning(
+            hptuner_instance,
+            self.epochs[0],
+            data_list)
+
         target_path = os.path.join(self.root_path, f"{job_type}_checkpoint.pt")   
         
-        torch.save({
-            "model_state_dict": model_state_dict,
-            "optimizer_state_dict": optimizer_state_dict,
-            "trainer_state_dict": trainer_state_dict,
-            "best_trial_config": best_trial_config,
-            "best_trial_val_loss": best_trial_val_loss,
-            "time_taken": time_taken
-        }, target_path)
+        torch.save(result_dict, target_path)
         
         pipeline.save()
 
@@ -87,7 +82,7 @@ class HPTuner(object):
                 
         logging.info(f"Default-Model: {self.model_class}, Default-Args={self.model_args}")
         logging.info(f"Default-Optimizer: {self.optimizer_class}, Default-Args={self.optimizer_args}")
-        logging.info(f"Default-Loss: {self.loss_class}, Default-Args={self.loss_args}")
+        logging.info(f"Default-Loss: {self.training_loss_class}, Default-Args={self.training_loss_args}")
         logging.info(f"Default-Config: Device={self.device}, BatchSize={self.batch_size}")
         
         
@@ -205,13 +200,14 @@ class HPTuner(object):
         
         start = time.time()
         
-        analysis = tune.run(tune.with_parameters(partial(hptuner_instance, epochs=epochs), train_list=train_list, val_list=val_list),
-                            name=tune_run_name,
-                            scheduler=scheduler,
-                            progress_reporter=reporter,
-                            search_alg=search_alg,
-                            stop=partial(HPTuner.stopping_criterion, **default_config.get("stopping_criterion", {})), 
-                            **tune_run_config)
+        analysis: ExperimentAnalysis = tune.run(
+            tune.with_parameters(partial(hptuner_instance, epochs=epochs), train_list=train_list, val_list=val_list),
+            name=tune_run_name,
+            scheduler=scheduler,
+            progress_reporter=reporter,
+            search_alg=search_alg,
+            stop=partial(HPTuner.stopping_criterion, **default_config.get("stopping_criterion", {})), 
+            **tune_run_config)
         
         time_taken = time.time() - start
         
@@ -229,9 +225,15 @@ class HPTuner(object):
         best_checkpoint_dir = analysis.get_best_checkpoint(best_trial)
         
         model_state_dict, optimizer_state_dict, trainer_state_dict = torch.load(os.path.join(best_checkpoint_dir, "checkpoint"))
-                
-        return model_state_dict, optimizer_state_dict, trainer_state_dict, best_trial.config, best_trial_val_loss, time_taken
         
+        return {
+            "model_state_dict": model_state_dict,
+            "optimizer_state_dict": optimizer_state_dict,
+            "trainer_state_dict": trainer_state_dict,
+            "best_trial_config": best_trial.config,
+            "best_trial_val_loss": best_trial_val_loss,
+            "time_taken": time_taken
+        }
         
     def __call__(self, config, checkpoint_dir=None, epochs:int = None, train_list:list = [], val_list:list = []):
         """Called by 'tune.run' during hyperparameter optimization. Check: https://docs.ray.io/en/releases-1.1.0/tune/api_docs/trainable.html
@@ -252,12 +254,14 @@ class HPTuner(object):
         
         ### extract and override ### 
         batch_size = self.batch_size
-        model_args, optimizer_args, loss_args = update_flat_dicts(config, [self.model_args, self.optimizer_args, self.loss_args])
+        model_args, optimizer_args, training_loss_args = update_flat_dicts(config, [self.model_args, 
+                                                                                    self.optimizer_args, 
+                                                                                    self.training_loss_args])
         ############################
         
         model = self.model_class(**model_args).double()
         optimizer = self.optimizer_class(filter(lambda p: p.requires_grad, model.parameters()), **optimizer_args)
-        loss = self.loss_class(**loss_args)
+        loss = self.training_loss_class(**training_loss_args)
         
         ### create trainer ###
         trainer = create_supervised_trainer(model, 

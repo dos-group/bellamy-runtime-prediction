@@ -1,12 +1,12 @@
 import torch
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import HashingVectorizer
 from sklearn.preprocessing import MinMaxScaler
 from torch_geometric.data import Data
 import pandas as pd
 import numpy as np
 import logging
-from typing import Union
+from typing import List, Union
 
 
 class PairData(Data):
@@ -261,6 +261,8 @@ class WrapperTransformer(BaseEstimator, TransformerMixin):
         self.out_column = out_column if isinstance(out_column, list) else [out_column]
         self.transformer = transformer
         
+        self.vocabulary = list("abcdefghijklmnopqrstuvwxyz0123456789.:,;_-+#@")
+        
     def fit(self, X, y=None):
         """Fits an internal transformer.
 
@@ -283,6 +285,26 @@ class WrapperTransformer(BaseEstimator, TransformerMixin):
                 
         return self
 
+    def __transform_with_hasher__(self, row: pd.Series):
+        values: List[List[Union[int, float]]] = []
+        for el in row.to_list():
+            el_char_list = list(str(el))
+            # remove undesired characters
+            el_char_list = [c for c in el_char_list if c in self.vocabulary]
+            el_str = "".join(el_char_list)
+            # get encoding from hashing vectorizer
+            base_encoding: List[Union[int, float]] = self.transformer.transform([el_str]).toarray().reshape(-1).tolist()
+            values.append(base_encoding)
+
+        values = [[0] + sub_list for sub_list in values]  # category "hasher"
+        return pd.Series(values)
+
+    def __transform_with_binarizer__(self, row: pd.Series):
+        values: List[List[Union[int, float]]] = [self.transformer.transform([e]).flatten().tolist()
+                                                 for e in row.to_list()]
+        values = [[1] + sub_list for sub_list in values]  # category "binarizer"
+        return pd.Series(values)
+    
     def transform(self, X, y = None):
         """Transforms certain DataFrame-columns using an internal transformer.
 
@@ -301,14 +323,12 @@ class WrapperTransformer(BaseEstimator, TransformerMixin):
             raise ValueError("Expected 'X' to be a pandas DataFrame or Series.")
             
         is_subset:bool = set(self.in_column).issubset(set(list(X.columns)))
-            
-        if isinstance(self.transformer, CountVectorizer) and is_subset:
-            func = lambda row: pd.Series([self.transformer.transform([str(e)]).todense().flatten().tolist() for e in row.to_list()])
-            X[self.out_column] = X.loc[:, self.in_column].apply(func, axis=1)
+                    
+        if isinstance(self.transformer, HashingVectorizer) and is_subset:
+            X[self.out_column] = X.loc[:, self.in_column].apply(self.__transform_with_hasher__, axis=1)
             
         elif isinstance(self.transformer, BinaryTransformer) and is_subset:
-            func = lambda row: pd.Series([self.transformer.transform([e]).flatten().tolist() for e in row.to_list()])
-            X[self.out_column] = X.loc[:, self.in_column].apply(func, axis=1)
+            X[self.out_column] = X.loc[:, self.in_column].apply(self.__transform_with_binarizer__, axis=1)
         
         elif is_subset:
             X[self.out_column] = self.transformer.transform(X[self.in_column].values.reshape(-1, len(self.in_column)))

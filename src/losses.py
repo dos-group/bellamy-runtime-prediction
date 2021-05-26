@@ -9,18 +9,13 @@ from ignite.engine import Engine
 from src.utils import default_config
 
 
-class LossWrapper(object):
+class TrainingLoss(object):
     def __init__(self, *args, **kwargs):
         
         self.__dict__.update(kwargs)
             
-        self.prediction_loss = nn.SmoothL1Loss(reduction="none")
-        self.reconstruction_loss = nn.MSELoss(reduction="none")
-        
-        self.train_embeddings = True
-        
-        # default: both "classes" have same weight
-        self.weights = torch.tensor([1., 1.]).to(self.device).double()
+        self.prediction_loss = nn.SmoothL1Loss()
+        self.reconstruction_loss = nn.MSELoss()
         
     def __call__(self, pred_dict: dict, batch):
         """Computes the loss given a batch-object and a result-dict from the model.
@@ -39,29 +34,18 @@ class LossWrapper(object):
         """
         
         pred_dict = {k:v for k,v in pred_dict.items() if v is not None and "_codes" not in k}
-        
-        types = torch.abs(batch.type.to(torch.long))
-        
+                
         loss_list : list = []
         for k, v in pred_dict.items():
             ks = "_".join(k.split('_')[:-1])
             
             t = batch[ks]
             
-            loss_values = None
+            loss_value = None
             if ks == "y": # loss for runtime prediction
-                loss_values = self.prediction_loss(v, t)
-            elif self.train_embeddings: # loss for auto-encoder reconstruction
-                loss_values = self.reconstruction_loss(v, t)
-            else:
-                continue
-                        
-            loss_values = torch.mean(loss_values, dim=-1).reshape(-1)
-            
-            weights = self.weights[types].reshape(-1, 1)
-            weights = weights.repeat(1, int(len(t) / len(batch.y))).reshape(-1)
-            
-            loss_value = torch.sum(weights * loss_values) / torch.sum(weights) 
+                loss_value = self.prediction_loss(v, t)
+            else: # loss for auto-encoder reconstruction
+                loss_value = self.reconstruction_loss(v, t)
                 
             loss_list.append(loss_value)
         
@@ -69,19 +53,9 @@ class LossWrapper(object):
 
     
 class FineTuningLoss(object):
-    def __init__(self, threshold: float, **kwargs):
-        """
-        Parameters
-        ----------
-        threshold : float
-            A threshold for early stopping
-        """
-        
-        if not isinstance(threshold, (int, float, str)):
-            raise ValueError("threshold must be value.")
+    def __init__(self, *args, **kwargs):
         
         self.loss = nn.SmoothL1Loss()
-        self.threshold = abs(float(threshold)) * 1.0
         
     def __call__(self, pred_dict, batch):
         """Computes the loss given a batch-object and a result-dict from the model.
@@ -98,15 +72,22 @@ class FineTuningLoss(object):
         loss
             A PyTorch loss.
         """
-                
-        types = torch.abs(batch.type.to(torch.long))
         
-        if torch.sum(types == 0) > 0:
-            y_pred = pred_dict["y_pred"]
-            y_true = batch.y
-            return self.loss(y_pred[types == 0], y_true[types == 0])   
-        else:
-            return torch.tensor(self.threshold)
+        y_pred = pred_dict["y_pred"]
+        y_true = batch.y
+        return self.loss(y_pred, y_true)   
+        
+
+class ObservationLoss(object):
+    def __init__(self, *args, **kwargs):
+
+        self.loss = nn.L1Loss()
+
+    def __call__(self, pred_dict, batch):
+
+        y_pred = pred_dict["y_pred"]
+        y_true = batch.y
+        return self.loss(y_pred, y_true)        
         
         
 class Scorer(object):
@@ -118,12 +99,15 @@ class Scorer(object):
             The training-engine
         """
         
+        self.key = None
+        self.relation = None
+        self.threshold = None
+        self.trainer = trainer
+        
         kwargs.setdefault('relation', 'lt')
         kwargs.setdefault('key', 'ft_loss')
         kwargs.setdefault('threshold', -5.)
-        
-        self.trainer = trainer
-        
+                
         self.__dict__.update(kwargs)
         self.__dict__.update(default_config.get("score_function", {}))
         

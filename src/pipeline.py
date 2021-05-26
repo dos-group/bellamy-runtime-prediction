@@ -2,7 +2,7 @@ import os
 import dill
 import numpy as np
 from sklearn.pipeline import Pipeline
-from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import HashingVectorizer
 from sklearn.preprocessing import MinMaxScaler
 from src.transforms import *
 from src.utils import create_dirs, default_config
@@ -10,7 +10,7 @@ from src.utils import create_dirs, default_config
 
 transformer_dict : dict = {
     "BinaryTransformer": BinaryTransformer,
-    "CountVectorizer": CountVectorizer,
+    "HashingVectorizer": HashingVectorizer,
     "MinMaxScaler": MinMaxScaler
 }
 

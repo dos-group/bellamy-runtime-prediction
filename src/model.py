@@ -5,6 +5,7 @@ import logging
 from datetime import datetime
 
 import copy
+from typing import Optional
 import torch
 from torch.optim import Adam
 import torch.nn as nn
@@ -44,15 +45,19 @@ class TorchModel(object):
         
         self.model_class = NNModel
         self.optimizer_class = Adam
-        self.loss_class = LossWrapper
+        self.training_loss_class = TrainingLoss
+        self.fine_tuning_loss_class = FineTuningLoss
+
         
         self.model_args = {**self.__dict__.get("model_args", {}), "device": self.device}
         self.model_args.update({k:v for k,v in default_config.get("pipeline", {}).items() if "column" in k})
         
         self.optimizer_args = self.__dict__.get("optimizer_args", {})
-        self.loss_args = {**self.__dict__.get("loss_args", {}), "device": self.device}
         
-        self.model = None
+        self.training_loss_args = {**self.__dict__.get("training_loss_args", {}), "device": self.device}
+        self.fine_tuning_loss_args = {**self.__dict__.get("fine_tuning_loss_args", {}), "device": self.device}
+        
+        self.model: Optional[NNModel] = None
                  
     
     @property
@@ -64,7 +69,8 @@ class TorchModel(object):
             "batch_size": self.batch_size,
             **self.model_args,
             **self.optimizer_args,
-            **self.loss_args
+            **self.training_loss_args,
+            **self.fine_tuning_loss_args
         }      
     
     def get_pretrained_model(self, checkpoint = None):
@@ -92,7 +98,9 @@ class TorchModel(object):
         
         ### extract and override ### 
            
-        model_args, optimizer_args, loss_args = update_flat_dicts(config_dict, [self.model_args, self.optimizer_args, self.loss_args])
+        model_args, optimizer_args, fine_tuning_loss_args = update_flat_dicts(config_dict, [self.model_args, 
+                                                                                            self.optimizer_args, 
+                                                                                            self.fine_tuning_loss_args])
         ############################
         
         reuse_for_fine_tuning = default_config.get("reuse_for_fine_tuning", {})
@@ -102,9 +110,6 @@ class TorchModel(object):
             
         if not reuse_for_fine_tuning.get("optimizer_args", False):
             optimizer_args = self.optimizer_args
-            
-        if not reuse_for_fine_tuning.get("loss_args", False):
-            loss_args = self.loss_args
             
         ### create model ###
         model = self.model_class(**model_args).double()
@@ -134,12 +139,12 @@ class TorchModel(object):
 
         # init optimizer and loss
         optimizer = self.optimizer_class(model.parameters(), **optimizer_args)
-        loss = self.loss_class(**loss_args)
+        loss = self.fine_tuning_loss_class(**fine_tuning_loss_args)
         
         suffix = "PreTrained-" if checkpoint is not None else ""
         logging.info(f"{suffix}Model: {self.model_class}, {suffix}Args={model_args}")
         logging.info(f"{suffix}Optimizer: {self.optimizer_class}, {suffix}Args={optimizer_args}")
-        logging.info(f"{suffix}Loss: {self.loss_class}, {suffix}Args={loss_args}")       
+        logging.info(f"{suffix}Loss: {self.fine_tuning_loss_class}, {suffix}Args={fine_tuning_loss_args}")
         
         return model, optimizer, loss, config_dict
     
@@ -216,7 +221,7 @@ class TorchModel(object):
             
             # scorer function to determine training improvements
             score_function = Scorer(trainer)    
-            Loss(FineTuningLoss(score_function.threshold)).attach(trainer, "ft_loss")
+            Loss(ObservationLoss()).attach(trainer, "ft_loss")
             
             # setup ignite checkpoint handler
             checkpoint_handler = Checkpoint(
@@ -276,11 +281,13 @@ class TorchModel(object):
 ################ Actual PyTorch model below ######################
 ##################################################################
 def init_weights(m):
-    """Weight initialization with glorot."""
+    """He Initialization."""
     if type(m) == nn.Linear:
-        glorot(m.weight)
+        # weights are using lecun-normal initialization
+        nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='selu')
+        # biases zero
         if m.bias is not None:
-            zeros(m.bias)
+            nn.init.constant_(m.bias, 0)
         
 
 class NNModel(nn.Module):
@@ -294,21 +301,25 @@ class NNModel(nn.Module):
           
         ### instance count embeddings ###
         self.scale_out_layer = nn.Sequential(nn.Linear(3, self.upscale_hidden_dim),
-                                             nn.ELU(),
+                                             nn.SELU(),
                                              nn.Linear(self.upscale_hidden_dim, self.hidden_dim), 
-                                             nn.ELU())
+                                             nn.SELU())
         self.scale_out_layer.apply(init_weights)
         
         ### encoder ###
-        self.encoder = nn.Sequential(nn.Linear(self.encoding_dim, self.hidden_dim, bias=False), 
-                                     nn.Dropout(p=self.dropout),
-                                     nn.Linear(self.hidden_dim, self.downscale_hidden_dim, bias=False))
+        self.encoder = nn.Sequential(nn.Linear(self.encoding_dim, self.hidden_dim, bias=False),
+                                     nn.SELU(),
+                                     nn.AlphaDropout(p=self.dropout),
+                                     nn.Linear(self.hidden_dim, self.downscale_hidden_dim, bias=False), 
+                                     nn.SELU())
         self.encoder.apply(init_weights)
         
         ### decoder ###
-        self.decoder = nn.Sequential(nn.Linear(self.downscale_hidden_dim, self.hidden_dim, bias=False), 
-                                     nn.Dropout(p=self.dropout),
-                                     nn.Linear(self.hidden_dim, self.encoding_dim, bias=False))
+        self.decoder = nn.Sequential(nn.Linear(self.downscale_hidden_dim, self.hidden_dim, bias=False),
+                                     nn.SELU(),
+                                     nn.AlphaDropout(p=self.dropout),
+                                     nn.Linear(self.hidden_dim, self.encoding_dim, bias=False), 
+                                     nn.Tanh())
         self.decoder.apply(init_weights)
         
         
@@ -317,9 +328,9 @@ class NNModel(nn.Module):
         self.c_layer_in_dim = self.hidden_dim + int((len(self.emb_columns) + 1) * self.downscale_hidden_dim)
         
         self.c_layer = nn.Sequential(nn.Linear(self.c_layer_in_dim, self.hidden_dim), 
-                                     nn.ELU(),
+                                     nn.SELU(),
                                      nn.Linear(self.hidden_dim, 1), 
-                                     nn.ELU())
+                                     nn.SELU())
         self.c_layer.apply(init_weights)
         
     
@@ -334,7 +345,7 @@ class NNModel(nn.Module):
         logging.info("Disable dropout layers...")
         
         for module in self.modules():
-            if isinstance(module, nn.Dropout):
+            if isinstance(module, (nn.Dropout, nn.AlphaDropout)):
                 module.p = 0.0
     
     
